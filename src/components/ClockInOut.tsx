@@ -114,7 +114,6 @@ export function ClockInOut() {
     return () => {
       sub.subscription.unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

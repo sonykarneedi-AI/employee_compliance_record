@@ -181,7 +181,6 @@ export function ManagerTimesheets() {
     refresh();
     const { data: sub } = supabase.auth.onAuthStateChange(() => refresh());
     return () => sub.subscription.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
