@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getSupabaseClient, SUPABASE_ENV_ERROR } from "@/lib/supabaseClient";
 
 type StoredFile = {
   name: string;
@@ -31,6 +31,7 @@ export function DocumentUpload({
 }: {
   bucket?: string;
 }) {
+  const supabase = getSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,11 +43,18 @@ export function DocumentUpload({
     [actionLoading, loading, selected]
   );
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
+    const sb = supabase;
     setError(null);
     setLoading(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
+      if (!sb) {
+        setFiles([]);
+        setError(SUPABASE_ENV_ERROR);
+        return;
+      }
+
+      const { data: auth } = await sb.auth.getUser();
       const user = auth.user;
       if (!user) {
         setFiles([]);
@@ -54,7 +62,7 @@ export function DocumentUpload({
       }
 
       const prefix = `${user.id}/`;
-      const { data, error: lErr } = await supabase.storage
+      const { data, error: lErr } = await sb.storage
         .from(bucket)
         .list(prefix, { limit: 100, sortBy: { column: "updated_at", order: "desc" } });
       if (lErr) throw lErr;
@@ -66,12 +74,17 @@ export function DocumentUpload({
     } finally {
       setLoading(false);
     }
-  }
+  }, [bucket, supabase]);
 
   async function onUpload() {
     setError(null);
     setActionLoading(true);
     try {
+      if (!supabase) {
+        setError(SUPABASE_ENV_ERROR);
+        return;
+      }
+
       const { data: auth } = await supabase.auth.getUser();
       const user = auth.user;
       if (!user) {
@@ -103,6 +116,7 @@ export function DocumentUpload({
   }
 
   async function downloadUrl(fileName: string) {
+    if (!supabase) return null;
     const { data: auth } = await supabase.auth.getUser();
     const user = auth.user;
     if (!user) return null;
@@ -113,11 +127,16 @@ export function DocumentUpload({
   }
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      setError(SUPABASE_ENV_ERROR);
+      return;
+    }
+
     refresh();
     const { data: sub } = supabase.auth.onAuthStateChange(() => refresh());
     return () => sub.subscription.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refresh, supabase]);
 
   return (
     <section className="w-full max-w-xl rounded-2xl border border-black/10 bg-white p-6 shadow-sm dark:border-white/15 dark:bg-zinc-950">

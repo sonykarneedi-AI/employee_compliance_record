@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getSupabaseClient, SUPABASE_ENV_ERROR } from "@/lib/supabaseClient";
 import { formatMinutes, minutesBetween, startOfWeek } from "@/lib/time";
 
 // Update these if your schema differs.
@@ -59,6 +59,7 @@ function statusFromEntries(entries: TimeEntry[]): Timesheet["status"] {
 }
 
 export function ManagerTimesheets() {
+  const supabase = getSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,11 +71,18 @@ export function ManagerTimesheets() {
     [timesheets]
   );
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
+    const sb = supabase;
     setError(null);
     setLoading(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
+      if (!sb) {
+        setTimesheets([]);
+        setError(SUPABASE_ENV_ERROR);
+        return;
+      }
+
+      const { data: auth } = await sb.auth.getUser();
       if (!auth.user) {
         setTimesheets([]);
         setError("You must be signed in to view the manager dashboard.");
@@ -84,7 +92,7 @@ export function ManagerTimesheets() {
       const since = new Date();
       since.setDate(since.getDate() - 28);
 
-      const { data, error: qErr } = await supabase
+      const { data, error: qErr } = await sb
         .from(TIME_ENTRIES_TABLE)
         .select(
           [
@@ -143,13 +151,18 @@ export function ManagerTimesheets() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
 
   async function setStatus(timesheet: Timesheet, status: "approved" | "rejected") {
+    const sb = supabase;
     setError(null);
     setActionLoadingKey(timesheet.key);
     try {
-      const { data: auth } = await supabase.auth.getUser();
+      if (!sb) {
+        throw new Error(SUPABASE_ENV_ERROR);
+      }
+
+      const { data: auth } = await sb.auth.getUser();
       const manager = auth.user;
       if (!manager) throw new Error("You must be signed in.");
 
@@ -157,7 +170,7 @@ export function ManagerTimesheets() {
 
       // Update all entries in this timesheet group.
       const ids = timesheet.entries.map((e) => e.id);
-      const { error: uErr } = await supabase
+      const { error: uErr } = await sb
         .from(TIME_ENTRIES_TABLE)
         .update({
           [COL_APPROVAL_STATUS]: status,
@@ -178,10 +191,16 @@ export function ManagerTimesheets() {
   }
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      setError(SUPABASE_ENV_ERROR);
+      return;
+    }
+
     refresh();
     const { data: sub } = supabase.auth.onAuthStateChange(() => refresh());
     return () => sub.subscription.unsubscribe();
-  }, []);
+  }, [refresh, supabase]);
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">

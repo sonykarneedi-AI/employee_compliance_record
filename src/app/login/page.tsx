@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient, SUPABASE_ENV_ERROR } from "@/lib/supabaseClient";
 
 type Mode = "signIn" | "signUp";
 
 export default function LoginPage() {
   const router = useRouter();
+  const supabase = getSupabaseClient();
   const [mode, setMode] = useState<Mode>("signIn");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,6 +26,9 @@ export default function LoginPage() {
     setMessage(null);
     setLoading(true);
     try {
+      if (!supabase) {
+        throw new Error(SUPABASE_ENV_ERROR);
+      }
       if (mode === "signIn") {
         const { error } = await supabase.auth.signInWithPassword({
           email,

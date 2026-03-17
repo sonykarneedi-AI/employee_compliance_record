@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getSupabaseClient, SUPABASE_ENV_ERROR } from "@/lib/supabaseClient";
 
 type TimeEntryRow = {
   id: string;
@@ -22,6 +22,7 @@ function formatTime(iso: string) {
 }
 
 export function ClockInOut() {
+  const supabase = getSupabaseClient();
   const [status, setStatus] = useState<Status>({ kind: "signed_out" });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -34,11 +35,18 @@ export function ClockInOut() {
     return "Clock in";
   }, [actionLoading, status.kind]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
+    const sb = supabase;
     setError(null);
     setLoading(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
+      if (!sb) {
+        setStatus({ kind: "signed_out" });
+        setError(SUPABASE_ENV_ERROR);
+        return;
+      }
+
+      const { data: auth } = await sb.auth.getUser();
       const user = auth.user;
       if (!user) {
         setStatus({ kind: "signed_out" });
@@ -48,7 +56,7 @@ export function ClockInOut() {
       // Assumed schema:
       // time_entries(id uuid, user_id uuid, clock_in timestamptz, clock_out timestamptz null)
       // "Open" entry = latest row where clock_out IS NULL
-      const { data, error: qErr } = await supabase
+      const { data, error: qErr } = await sb
         .from("time_entries")
         .select("id,user_id,clock_in,clock_out")
         .eq("user_id", user.id)
@@ -67,13 +75,19 @@ export function ClockInOut() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [supabase]);
 
   async function onPrimaryAction() {
+    const sb = supabase;
     setError(null);
     setActionLoading(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
+      if (!sb) {
+        setError(SUPABASE_ENV_ERROR);
+        return;
+      }
+
+      const { data: auth } = await sb.auth.getUser();
       const user = auth.user;
       if (!user) {
         setStatus({ kind: "signed_out" });
@@ -81,7 +95,7 @@ export function ClockInOut() {
       }
 
       if (status.kind === "clocked_in") {
-        const { error: uErr } = await supabase
+        const { error: uErr } = await sb
           .from("time_entries")
           .update({ clock_out: new Date().toISOString() })
           .eq("id", status.entry.id)
@@ -89,7 +103,7 @@ export function ClockInOut() {
           .is("clock_out", null);
         if (uErr) throw uErr;
       } else {
-        const { error: iErr } = await supabase.from("time_entries").insert({
+        const { error: iErr } = await sb.from("time_entries").insert({
           user_id: user.id,
           clock_in: new Date().toISOString(),
           clock_out: null,
@@ -107,14 +121,16 @@ export function ClockInOut() {
   }
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      setError(SUPABASE_ENV_ERROR);
+      return;
+    }
+
     refresh();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      refresh();
-    });
-    return () => {
-      sub.subscription.unsubscribe();
-    };
-  }, []);
+    const { data: sub } = supabase.auth.onAuthStateChange(() => refresh());
+    return () => sub.subscription.unsubscribe();
+  }, [refresh, supabase]);
 
   return (
     <section className="w-full max-w-xl rounded-2xl border border-black/10 bg-white p-6 shadow-sm dark:border-white/15 dark:bg-zinc-950">
@@ -173,7 +189,7 @@ export function ClockInOut() {
         {status.kind !== "signed_out" ? (
           <button
             type="button"
-            onClick={() => supabase.auth.signOut()}
+            onClick={() => supabase?.auth.signOut()}
             disabled={loading || actionLoading}
             className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-black/10 bg-white text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60 dark:border-white/15 dark:bg-zinc-950 dark:text-white dark:hover:bg-white/5"
           >
